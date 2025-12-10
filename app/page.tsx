@@ -4,7 +4,7 @@ import { useState } from "react"
 import { FileUpload } from "@/components/file-upload"
 import { AnimationList } from "@/components/animation-list"
 import { AnimationEditor } from "@/components/animation-editor"
-import { parseAnimationFromC, type AnimationEntry, animationDataToBlob, animationHeaderToBlob, animationToC } from "@/lib/animation-parser"
+import { parseAnimationFromC, combineAnimationFiles, type AnimationEntry, animationDataToBlob, animationHeaderToBlob, animationToC } from "@/lib/animation-parser"
 import { FileCode2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -15,6 +15,7 @@ export default function Home() {
   const [selectedAnimationName, setSelectedAnimationName] = useState<string>("")
   const [animation, setAnimation] = useState<AnimationEntry | null>(null)
   const [filename, setFilename] = useState<string>("")
+  const [uploadedFiles, setUploadedFiles] = useState<{ data?: string; header?: string }>({})
 
   const handleAnimationSelect = (animationName: string) => {
     setSelectedAnimationName(animationName)
@@ -28,9 +29,30 @@ export default function Home() {
       parsed.name = selectedAnimationName
       setAnimation(parsed)
       setFilename(name)
+      setUploadedFiles({}) // Reset uploaded files
       setStep("edit")
     } catch (error) {
       alert("Error parsing animation: " + (error instanceof Error ? error.message : "Unknown error"))
+    }
+  }
+
+  const handlePartialFileLoad = (data: string, name: string, type: 'data' | 'header') => {
+    const newUploadedFiles = { ...uploadedFiles, [type]: data }
+    setUploadedFiles(newUploadedFiles)
+
+    // If we now have both files, combine them
+    if (newUploadedFiles.data && newUploadedFiles.header) {
+      try {
+        const parsed = combineAnimationFiles(newUploadedFiles.data, newUploadedFiles.header)
+        // Override the animation name with the selected one
+        parsed.name = selectedAnimationName
+        setAnimation(parsed)
+        setFilename(name)
+        setUploadedFiles({}) // Reset uploaded files
+        setStep("edit")
+      } catch (error) {
+        alert("Error combining animation files: " + (error instanceof Error ? error.message : "Unknown error"))
+      }
     }
   }
 
@@ -38,6 +60,7 @@ export default function Home() {
     if (step === "upload") {
       setStep("select")
       setSelectedAnimationName("")
+      setUploadedFiles({})
     } else if (step === "edit") {
       setStep("upload")
       setAnimation(null)
@@ -128,7 +151,11 @@ export default function Home() {
                 ← Back
               </Button>
             </div>
-            <FileUpload onFileLoad={handleFileLoad} />
+            <FileUpload 
+              onFileLoad={handleFileLoad} 
+              onPartialFileLoad={handlePartialFileLoad}
+              uploadedFiles={uploadedFiles}
+            />
           </div>
         )}
 

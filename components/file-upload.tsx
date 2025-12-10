@@ -8,9 +8,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface FileUploadProps {
   onFileLoad: (data: string, filename: string) => void
+  onPartialFileLoad?: (data: string, filename: string, type: 'data' | 'header') => void
+  uploadedFiles?: { data?: string; header?: string }
 }
 
-export function FileUpload({ onFileLoad }: FileUploadProps) {
+export function FileUpload({ onFileLoad, onPartialFileLoad, uploadedFiles }: FileUploadProps) {
   const [error, setError] = useState<string | null>(null)
 
   const handleFile = useCallback(
@@ -22,7 +24,27 @@ export function FileUpload({ onFileLoad }: FileUploadProps) {
         const reader = new FileReader()
         reader.onload = (e) => {
           const text = e.target?.result as string
-          onFileLoad(text, file.name)
+          
+          // Check if it's a complete file or partial file
+          const hasData = /s16\s+\w+\s*\[\s*\]\s*=\s*\{/.test(text)
+          const hasHeader = /LinkAnimationHeader\s+\w+\s*=\s*\{/.test(text)
+          
+          if (hasData && hasHeader) {
+            // Complete file - use the original callback
+            onFileLoad(text, file.name)
+          } else if (hasData && !hasHeader) {
+            // Data file only
+            if (onPartialFileLoad) {
+              onPartialFileLoad(text, file.name, 'data')
+            }
+          } else if (!hasData && hasHeader) {
+            // Header file only
+            if (onPartialFileLoad) {
+              onPartialFileLoad(text, file.name, 'header')
+            }
+          } else {
+            setError('File does not contain valid animation data or header')
+          }
         }
         reader.onerror = () => {
           setError('Error reading file')
@@ -32,15 +54,16 @@ export function FileUpload({ onFileLoad }: FileUploadProps) {
         setError('Please upload a .c or .h file containing animation data')
       }
     },
-    [onFileLoad],
+    [onFileLoad, onPartialFileLoad],
   )
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
-      const file = e.dataTransfer.files[0]
-      if (file) {
-        handleFile(file)
+      const files = Array.from(e.dataTransfer.files)
+      if (files.length > 0) {
+        // Process first file, or could be enhanced to handle multiple
+        handleFile(files[0])
       }
     },
     [handleFile],
@@ -60,6 +83,9 @@ export function FileUpload({ onFileLoad }: FileUploadProps) {
     [handleFile],
   )
 
+  const needsDataFile = uploadedFiles?.header && !uploadedFiles?.data
+  const needsHeaderFile = uploadedFiles?.data && !uploadedFiles?.header
+
   return (
     <div className="space-y-4">
       <div
@@ -70,10 +96,34 @@ export function FileUpload({ onFileLoad }: FileUploadProps) {
         <input type="file" id="file-input" className="hidden" onChange={handleFileInput} accept=".c,.h" />
         <label htmlFor="file-input" className="cursor-pointer">
           <Upload className="w-12 h-24 mx-auto mb-4 text-muted-foreground" />
-          <p className="text-lg mb-2 text-foreground">Drop a <code className="bg-muted px-1.5 py-0.5 rounded d-inline mx-1">.c</code> animation file</p>
-          <p className="text-sm text-muted-foreground">or click to browse</p>
+          {needsDataFile ? (
+            <>
+              <p className="text-lg mb-2 text-foreground">Drop the <strong>data file</strong> (.c with s16 array)</p>
+              <p className="text-sm text-muted-foreground">or click to browse</p>
+            </>
+          ) : needsHeaderFile ? (
+            <>
+              <p className="text-lg mb-2 text-foreground">Drop the <strong>header file</strong> (.c with LinkAnimationHeader)</p>
+              <p className="text-sm text-muted-foreground">or click to browse</p>
+            </>
+          ) : (
+            <>
+              <p className="text-lg mb-2 text-foreground">Drop a <code className="bg-muted px-1.5 py-0.5 rounded d-inline mx-1">.c</code> animation file</p>
+              <p className="text-sm text-muted-foreground">or click to browse</p>
+            </>
+          )}
         </label>
       </div>
+      {uploadedFiles?.data && (
+        <Alert>
+          <AlertDescription className="text-sm">✓ Data file uploaded</AlertDescription>
+        </Alert>
+      )}
+      {uploadedFiles?.header && (
+        <Alert>
+          <AlertDescription className="text-sm">✓ Header file uploaded</AlertDescription>
+        </Alert>
+      )}
       {error && (
         <Alert variant="destructive">
           <AlertDescription className="text-sm">{error}</AlertDescription>

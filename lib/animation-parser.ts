@@ -111,31 +111,22 @@ export function parseAnimationHeader(rawData: Uint8Array): { frameCount: number;
 }
 
 /**
- * Parse animation from C source code format
+ * Parse animation data array from C source code
  */
-export function parseAnimationFromC(cSource: string): AnimationEntry {
+export function parseAnimationDataFromC(cSource: string): { dataArrayName: string; data: Int16Array } | null {
   // Extract array name and data
   const arrayMatch = cSource.match(/s16\s+(\w+)\s*\[\s*\]\s*=\s*\{([^}]+)\}/)
   if (!arrayMatch) {
-    throw new Error("Invalid C source format - could not find s16 array declaration")
+    return null
   }
 
   const dataArrayName = arrayMatch[1]
   const dataContent = arrayMatch[2]
 
-  // Extract header info
-  const headerMatch = cSource.match(/LinkAnimationHeader\s+(\w+)\s*=\s*\{\s*\{\s*(\d+)\s*\}/)
-  if (!headerMatch) {
-    throw new Error("Invalid C source format - could not find LinkAnimationHeader declaration")
-  }
-
-  const animName = headerMatch[1]
-  const frameCount = parseInt(headerMatch[2], 10)
-
   // Parse hex values from the data array
   const hexValues = dataContent.match(/(?:0x[0-9A-Fa-f]+|-0x[0-9A-Fa-f]+)/g)
   if (!hexValues) {
-    throw new Error("Invalid C source format - could not find hex values")
+    return null
   }
 
   const data = new Int16Array(hexValues.length)
@@ -143,10 +134,74 @@ export function parseAnimationFromC(cSource: string): AnimationEntry {
     data[i] = parseInt(hexValues[i], 16)
   }
 
+  return { dataArrayName, data }
+}
+
+/**
+ * Parse animation header from C source code
+ */
+export function parseAnimationHeaderFromC(cSource: string): { animName: string; frameCount: number; dataArrayName: string } | null {
+  // Extract header info
+  const headerMatch = cSource.match(/LinkAnimationHeader\s+(\w+)\s*=\s*\{\s*\{\s*(\d+)\s*\}\s*,\s*(\w+)/)
+  if (!headerMatch) {
+    return null
+  }
+
+  const animName = headerMatch[1]
+  const frameCount = parseInt(headerMatch[2], 10)
+  const dataArrayName = headerMatch[3]
+
+  return { animName, frameCount, dataArrayName }
+}
+
+/**
+ * Parse animation from C source code format (combined file)
+ */
+export function parseAnimationFromC(cSource: string): AnimationEntry {
+  // Try to parse as combined file first
+  const dataResult = parseAnimationDataFromC(cSource)
+  const headerResult = parseAnimationHeaderFromC(cSource)
+
+  if (dataResult && headerResult) {
+    // Combined file with both data and header
+    return {
+      name: headerResult.animName,
+      frameCount: headerResult.frameCount,
+      data: dataResult.data,
+    }
+  }
+
+  // If we only have one or the other, throw an error
+  if (dataResult && !headerResult) {
+    throw new Error("File contains only animation data array - header file needed")
+  }
+
+  if (!dataResult && headerResult) {
+    throw new Error("File contains only animation header - data file needed")
+  }
+
+  throw new Error("Invalid C source format - could not find animation data")
+}
+
+/**
+ * Combine separate data and header files into a complete animation
+ */
+export function combineAnimationFiles(dataSource: string, headerSource: string): AnimationEntry {
+  const dataResult = parseAnimationDataFromC(dataSource)
+  const headerResult = parseAnimationHeaderFromC(headerSource)
+
+  if (!dataResult) {
+    throw new Error("Invalid data file - could not find s16 array declaration")
+  }
+
+  if (!headerResult) {
+    throw new Error("Invalid header file - could not find LinkAnimationHeader declaration")
+  }
+
   return {
-    name: animName,
-    frameCount,
-    data,
+    name: headerResult.animName,
+    frameCount: headerResult.frameCount,
+    data: dataResult.data,
   }
 }
 
